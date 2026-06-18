@@ -1,0 +1,5 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: optional slow tests (not used in default CI)",
+]

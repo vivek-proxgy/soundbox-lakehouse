@@ -1,0 +1,25 @@
+# Core — Postgres ingest, local parquet, DuckDB
+duckdb>=1.1.0
+pandas>=2.2.0
+pyarrow>=17.0.0
+psycopg2-binary>=2.9.9
+pydantic>=2.8.0
+pydantic-settings>=2.4.0
+python-dotenv>=1.0.1
+cryptography>=43.0.0
+
+# GCS & Iceberg Integration
+google-cloud-storage>=2.18.0
+pyiceberg[gcs,pyarrow]>=0.7.0
+sqlalchemy>=2.0.0
+google-cloud-dataproc>=5.0.0
+
+# Spark Ingestion (used on Dataproc Serverless / cluster & local testing)
+# PySpark is pre-installed on Dataproc images; pin for local dev only.
+pyspark==3.5.4
+
+# Test / dev (CI)
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+ruff>=0.6.0
+

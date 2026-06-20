@@ -3,7 +3,7 @@
 import pytest
 
 from app.config.settings import Settings
-from app.spark.session import spark_config
+from ingestion.spark_engine import spark_config
 
 
 def test_spark_config_uses_env(monkeypatch: pytest.MonkeyPatch):

@@ -9,8 +9,8 @@ import pandas as pd
 import pytest
 
 from app.config.settings import Settings
-from app.ingestion.postgres_reader import export_table
-from app.ingestion.queries import TRANSACTIONS_SPEC
+from ingestion.pandas_engine import export_table
+from ingestion.queries import TRANSACTIONS_SPEC
 
 
 @pytest.fixture
@@ -31,15 +31,16 @@ def test_export_table_uses_mock_connection(db_settings: Settings):
                 "merchant_id": "m-1",
                 "amount": 10.0,
                 "created_at": datetime(2025, 6, 1, tzinfo=timezone.utc),
+                "updated_at": datetime(2025, 6, 1, tzinfo=timezone.utc),
             }
         ]
     )
     mock_conn = MagicMock()
 
     with (
-        patch("app.ingestion.postgres_reader.psycopg2.connect", return_value=mock_conn) as connect_mock,
-        patch("app.ingestion.postgres_reader.pd.read_sql", return_value=frame) as read_sql_mock,
-        patch("app.ingestion.postgres_reader.write_watermark") as watermark_mock,
+        patch("ingestion.pandas_engine.psycopg2.connect", return_value=mock_conn) as connect_mock,
+        patch("ingestion.pandas_engine.pd.read_sql", return_value=frame) as read_sql_mock,
+        patch("ingestion.utils.write_watermark") as watermark_mock,
     ):
         result = export_table(TRANSACTIONS_SPEC, db_settings)
 
@@ -64,15 +65,16 @@ def test_export_table_writes_watermark_in_incremental_mode(
                 "merchant_id": "m-1",
                 "amount": 10.0,
                 "created_at": datetime(2025, 6, 1, tzinfo=timezone.utc),
+                "updated_at": datetime(2025, 6, 1, tzinfo=timezone.utc),
             }
         ]
     )
 
     with (
-        patch("app.ingestion.postgres_reader.psycopg2.connect", return_value=MagicMock()),
-        patch("app.ingestion.postgres_reader.pd.read_sql", return_value=frame),
-        patch("app.ingestion.postgres_reader.read_watermark") as read_wm_mock,
-        patch("app.ingestion.postgres_reader.write_watermark") as write_wm_mock,
+        patch("ingestion.pandas_engine.psycopg2.connect", return_value=MagicMock()),
+        patch("ingestion.pandas_engine.pd.read_sql", return_value=frame),
+        patch("ingestion.utils.read_watermark") as read_wm_mock,
+        patch("ingestion.utils.write_watermark") as write_wm_mock,
     ):
         read_wm_mock.return_value = datetime(2025, 1, 1, tzinfo=timezone.utc)
         export_table(TRANSACTIONS_SPEC, settings)

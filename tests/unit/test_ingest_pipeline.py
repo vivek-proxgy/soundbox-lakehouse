@@ -5,9 +5,10 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+import pandas as pd
 
 from app.config.settings import Settings
-from app.job.run_ingestion import run
+from ingestion.run import run
 from app.utils.data_access import query_parquet_glob
 
 
@@ -15,9 +16,12 @@ def test_ingest_writes_parquet_and_duckdb_reads(
     lakehouse_settings_env,
     sample_export_frames,
 ):
+    def mock_export_table(spec, settings):
+        return sample_export_frames.get(spec.name, pd.DataFrame())
+
     with patch(
-        "app.job.run_ingestion.export_all_tables",
-        return_value=sample_export_frames,
+        "ingestion.pandas_engine.export_table",
+        side_effect=mock_export_table,
     ):
         result = run(Settings())
 
@@ -43,16 +47,19 @@ def test_ingest_uploads_to_gcs_when_enabled(
     monkeypatch.setenv("UPLOAD_TO_GCS", "true")
     monkeypatch.setenv("WAREHOUSE_PATH", "gs://test-bucket/soundbox")
 
+    def mock_export_table(spec, settings):
+        return sample_export_frames.get(spec.name, pd.DataFrame())
+
     with (
         patch(
-            "app.job.run_ingestion.export_all_tables",
-            return_value=sample_export_frames,
+            "ingestion.pandas_engine.export_table",
+            side_effect=mock_export_table,
         ),
-        patch("app.job.run_ingestion.sync_table", return_value={"rows": 1}) as sync_mock,
+        patch("ingestion.pandas_engine.upload_to_gcs", return_value="gs://test-bucket/mock") as upload_mock,
     ):
         result = run(Settings())
 
-    assert sync_mock.call_count == 2
+    assert upload_mock.call_count == 2
     assert "merchants" in result["gcs"]
     assert "transactions" in result["gcs"]
 
@@ -66,6 +73,12 @@ def test_ingest_fails_when_full_mode_has_no_merchants(
         "merchants": sample_export_frames["merchants"].iloc[0:0],
     }
 
-    with patch("app.job.run_ingestion.export_all_tables", return_value=empty_frames):
+    def mock_export_table(spec, settings):
+        return empty_frames.get(spec.name, pd.DataFrame())
+
+    with patch(
+        "ingestion.pandas_engine.export_table",
+        side_effect=mock_export_table,
+    ):
         with pytest.raises(RuntimeError, match="No merchants exported"):
             run(Settings())

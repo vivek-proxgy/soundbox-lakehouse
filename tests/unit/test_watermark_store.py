@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.config.settings import Settings
-from app.ingestion.watermark_store import read_watermark, write_watermark
+from ingestion.watermark import read_watermark, write_watermark
 
 
 def test_read_watermark_from_local_file(tmp_path, monkeypatch: pytest.MonkeyPatch):

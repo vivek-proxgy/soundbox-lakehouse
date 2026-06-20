@@ -82,7 +82,7 @@ def mock_all_settings_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("DUCKDB_THREADS", "4")
     monkeypatch.setenv("UPLOAD_TO_GCS", "false")
     monkeypatch.setenv("WRITE_LOCAL_PARQUET", "true")
-    monkeypatch.setenv("INGEST_ENGINE", "spark")
+    monkeypatch.setenv("INGEST_ENGINE", "pandas")
     monkeypatch.setenv("SPARK_APP_NAME", "soundbox-lakehouse-ingest")
     monkeypatch.setenv("SPARK_MASTER", "local[*]")
     monkeypatch.setenv("SPARK_ICEBERG_CATALOG", "lakehouse")

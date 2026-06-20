@@ -6,14 +6,15 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev gcc \
+    libpq-dev gcc openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
-COPY scripts ./scripts
+COPY ingestion ./ingestion
+COPY main.py ./main.py
 
-# Cloud Run Job entrypoint — all config via env vars / Secret Manager
-CMD ["python", "-m", "app.main"]
+# Cloud Run entrypoint — starts Web API or Ingestion job dynamically via RUN_MODE
+CMD ["python", "main.py"]

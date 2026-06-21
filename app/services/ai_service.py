@@ -7,7 +7,12 @@ import os
 import re
 from typing import Any
 
-import google.generativeai as genai
+try:
+    import google.generativeai as genai
+    HAS_GEMINI_SDK = True
+except ImportError:
+    genai = None
+    HAS_GEMINI_SDK = False
 
 from app.config.settings import Settings, get_settings
 from app.services.duckdb_service import DuckDBService
@@ -22,11 +27,11 @@ class AIService:
         
         # Configure Gemini API
         api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        if api_key:
+        if api_key and HAS_GEMINI_SDK and genai is not None:
             genai.configure(api_key=api_key)
             self.model_name = "gemini-2.5-flash"
         else:
-            print("[ai-service] Warning: No GEMINI_API_KEY or GOOGLE_API_KEY set.")
+            print("[ai-service] Warning: No GEMINI_API_KEY/GOOGLE_API_KEY set or Gemini SDK missing.")
             self.model_name = None
 
     def _get_schema_prompt(self) -> str:

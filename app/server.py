@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
-from app.routes import health, ingest, query
+from app.routes import health, ingest, query, copilot
 
 app = FastAPI(
     title="Soundbox Lakehouse API Server",
@@ -15,5 +15,6 @@ app = FastAPI(
 app.include_router(health.router)
 app.include_router(ingest.router, tags=["ingestion"])
 app.include_router(query.router, tags=["ai-duckdb"])
+app.include_router(copilot.router)
 
 

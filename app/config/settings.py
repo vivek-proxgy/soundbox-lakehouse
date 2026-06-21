@@ -3,6 +3,9 @@ from functools import lru_cache
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.config.enums.env_var import SettingsEnv
+from app.core.enums.run_mode import DEFAULT_BIND_HOST, RunMode, ServerDefaults
+
 class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
@@ -56,6 +59,65 @@ class Settings(BaseSettings):
     spark_jdbc_num_partitions: int = Field(validation_alias="SPARK_JDBC_NUM_PARTITIONS")
     spark_jdbc_fetch_size: int = Field(validation_alias="SPARK_JDBC_FETCH_SIZE")
     spark_decrypt_pii: bool = Field(validation_alias="SPARK_DECRYPT_PII")
+
+    # --- API server security (on-prem-soundbox-backend compatible) ---
+    auth_enabled: bool = Field(default=True, validation_alias="AUTH_ENABLED")
+    auth_api_key_only: bool = Field(default=False, validation_alias="AUTH_API_KEY_ONLY")
+    auth_jwt_secret: str = Field(default="", validation_alias="AUTH_JWT_SECRET")
+    lakehouse_api_key: str = Field(default="", validation_alias="LAKEHOUSE_API_KEY")
+    cors_enabled: bool = Field(default=True, validation_alias="CORS_ENABLED")
+    allowed_origins: str = Field(
+        default="http://localhost:3000",
+        validation_alias="ALLOWED_ORIGINS",
+    )
+    throttle_limit: int = Field(default=100, validation_alias="THROTTLE_LIMIT")
+    throttle_ttl: int = Field(default=60, validation_alias="THROTTLE_TTL")
+    log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
+    gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
+    sql_max_length: int = Field(default=10000, validation_alias="SQL_MAX_LENGTH")
+    jwt_algorithm: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")
+    service_user_id: str = Field(default="service", validation_alias="SERVICE_USER_ID")
+    anonymous_user_id: str = Field(default="anonymous", validation_alias="ANONYMOUS_USER_ID")
+    conversation_max_turns: int = Field(default=20, validation_alias="CONVERSATION_MAX_TURNS")
+    conversation_max_message_length: int = Field(
+        default=4000,
+        validation_alias="CONVERSATION_MAX_MESSAGE_LENGTH",
+    )
+    llm_context_window: int = Field(default=6, validation_alias="LLM_CONTEXT_WINDOW")
+
+    # --- Process mode (required — no auto-detection from PORT or CLI) ---
+    run_mode: RunMode = Field(validation_alias=SettingsEnv.RUN_MODE)
+
+    # --- API server runtime ---
+    server_host: str = Field(
+        default=DEFAULT_BIND_HOST,
+        validation_alias=SettingsEnv.SERVER_HOST,
+    )
+    server_port: int = Field(
+        default=ServerDefaults.PORT,
+        validation_alias=SettingsEnv.PORT,
+    )
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
+
+    @field_validator("run_mode", mode="before")
+    @classmethod
+    def validate_run_mode(cls, value: object) -> RunMode:
+        if value is None or str(value).strip() == "":
+            raise ValueError(
+                f"{SettingsEnv.RUN_MODE} is required — set to "
+                f"'{RunMode.SERVER}' or '{RunMode.INGEST}'"
+            )
+        normalized = str(value).lower().strip()
+        try:
+            return RunMode(normalized)
+        except ValueError as exc:
+            allowed = ", ".join(RunMode.values())
+            raise ValueError(
+                f"{SettingsEnv.RUN_MODE}={value!r} is invalid — must be one of: {allowed}"
+            ) from exc
 
     @field_validator("ingest_engine")
     @classmethod

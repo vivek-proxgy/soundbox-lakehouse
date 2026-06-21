@@ -7,6 +7,10 @@ from datetime import datetime, timezone
 import pandas as pd
 import pytest
 
+from app.config.settings import get_settings
+from app.config.enums.env_var import SettingsEnv
+from app.core.enums.run_mode import RunMode
+
 
 @pytest.fixture
 def sample_merchants_df() -> pd.DataFrame:
@@ -91,6 +95,18 @@ def mock_all_settings_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("SPARK_JDBC_NUM_PARTITIONS", "16")
     monkeypatch.setenv("SPARK_JDBC_FETCH_SIZE", "10000")
     monkeypatch.setenv("SPARK_DECRYPT_PII", "false")
+    monkeypatch.setenv(SettingsEnv.RUN_MODE, RunMode.INGEST)
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+    monkeypatch.setenv("AUTH_JWT_SECRET", "test-jwt-secret-for-ci")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    monkeypatch.setenv("LAKEHOUSE_API_KEY", "a" * 32)
+    monkeypatch.setenv("LOG_LEVEL", "WARNING")
+    monkeypatch.setenv("CONVERSATION_MAX_TURNS", "20")
+    monkeypatch.setenv("CONVERSATION_MAX_MESSAGE_LENGTH", "4000")
+    monkeypatch.setenv("LLM_CONTEXT_WINDOW", "6")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture

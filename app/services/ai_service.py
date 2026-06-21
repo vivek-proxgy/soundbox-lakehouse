@@ -15,6 +15,10 @@ except ImportError:
     HAS_GEMINI_SDK = False
 
 from app.config.settings import Settings, get_settings
+from app.core.enums.error_key import ErrorKey
+from app.core.http_errors import service_unavailable
+from app.core.messages.error_messages import ErrorMessage
+from app.core.sql_security import sanitize_sql
 from app.services.duckdb_service import DuckDBService
 
 
@@ -24,15 +28,20 @@ class AIService:
     def __init__(self, settings: Settings | None = None, duckdb_service: DuckDBService | None = None):
         self.settings = settings or get_settings()
         self.duckdb_service = duckdb_service or DuckDBService(self.settings)
-        
-        # Configure Gemini API
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+        api_key = (
+            self.settings.gemini_api_key
+            or os.getenv("GEMINI_API_KEY")
+            or os.getenv("GOOGLE_API_KEY")
+        )
         if api_key and HAS_GEMINI_SDK and genai is not None:
             genai.configure(api_key=api_key)
             self.model_name = "gemini-2.5-flash"
         else:
-            print("[ai-service] Warning: No GEMINI_API_KEY/GOOGLE_API_KEY set or Gemini SDK missing.")
             self.model_name = None
+
+    def is_configured(self) -> bool:
+        return self.model_name is not None
 
     def _get_schema_prompt(self) -> str:
         """Provide detailed schema context of the tables in DuckDB."""
@@ -117,7 +126,7 @@ Instructions:
     def generate_sql(self, user_prompt: str) -> str:
         """Translate a user prompt into a DuckDB SQL query using Gemini."""
         if not self.model_name:
-            raise RuntimeError("Gemini API key is not configured. Set GEMINI_API_KEY environment variable.")
+            raise service_unavailable(ErrorKey.CONFIG, ErrorMessage.GEMINI_NOT_CONFIGURED.value)
 
         system_prompt = self._get_schema_prompt()
         model = genai.GenerativeModel(
@@ -144,26 +153,22 @@ Instructions:
 
     def query_with_ai(self, user_prompt: str) -> dict[str, Any]:
         """Convert natural language to SQL, run the query, and return results + synthesis."""
-        # 1. Generate SQL
         sql = self.generate_sql(user_prompt)
-        print(f"[ai-service] Generated SQL: {sql}")
+        safe_sql = sanitize_sql(sql)
 
-        # 2. Run Query in DuckDB
-        df = self.duckdb_service.query_to_df(sql)
+        df = self.duckdb_service.query_to_df(safe_sql)
         records = df.to_dict(orient="records")
-
-        # 3. Synthesize response using Gemini
         if not self.model_name:
             return {
-                "sql": sql,
+                "sql": safe_sql,
                 "data": records,
-                "answer": "Results fetched successfully (Text synthesis requires Gemini API key)."
+                "answer": "Results fetched successfully (Text synthesis requires Gemini API key).",
             }
 
         synthesis_prompt = f"""
 You are an expert analyst. Answer the user's question by reviewing the database query results.
 User Question: "{user_prompt}"
-Executed SQL: "{sql}"
+Executed SQL: "{safe_sql}"
 Query Results (JSON):
 {json.dumps(records, indent=2, default=str)}
 
@@ -173,7 +178,7 @@ Provide a concise, direct, professional answer summarizing the findings. Do not 
         synthesis_response = model.generate_content(synthesis_prompt)
 
         return {
-            "sql": sql,
+            "sql": safe_sql,
             "data": records,
-            "answer": synthesis_response.text.strip()
+            "answer": synthesis_response.text.strip(),
         }

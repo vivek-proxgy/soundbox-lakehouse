@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, NamedTuple, Optional
 import pandas as pd
 
+from app.core.sql_security import sanitize_org_id
 from app.services.duckdb_service import DuckDBService
 from app.services.copilot.forecaster import forecast_next_days
 
@@ -77,7 +78,9 @@ def apply_org_filter(where_clause: str, org_id: Optional[str]) -> str:
     if not org_id or org_id.lower() in ("all", "null", "undefined", ""):
         return where_clause
     prefix = "AND" if where_clause.strip() else "WHERE"
-    clean_org = re.sub(r"[^a-zA-Z0-9\-_]", "", org_id)
+    clean_org = sanitize_org_id(org_id)
+    if not clean_org:
+        return where_clause
     return f"{where_clause} {prefix} organization_id = '{clean_org}'"
 
 

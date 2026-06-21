@@ -15,7 +15,7 @@ steps:
       - 'push'
       - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${REPO_NAME}/${REPO_NAME}:latest'
 
-  # Step 3: Deploy/Update the Cloud Run Job
+  # Step 3: Deploy/Update the Cloud Run Job (ingestion)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args:
@@ -26,9 +26,21 @@ steps:
       - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${REPO_NAME}/${REPO_NAME}:latest'
       - '--region=${_REGION}'
 
+  # Step 4: Deploy Cloud Run Service (Intelligence API) — same minimal pattern as soundbox-backend
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${REPO_NAME}/${REPO_NAME}:latest'
+      - '--region=${_REGION}'
+      - '--platform=managed'
+
 substitutions:
   _REGION: 'asia-south1'
   _JOB_NAME: 'soundbox-lakehouse-ingest'
+  _SERVICE_NAME: 'soundbox-lakehouse-api'
 
 options:
   logging: CLOUD_LOGGING_ONLY

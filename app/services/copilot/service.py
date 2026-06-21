@@ -8,13 +8,16 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
+from app.services.copilot.enums.intent import CopilotIntent
+from app.core.sql_security import sanitize_sql as validate_readonly_sql
+
 from app.config.settings import Settings, get_settings
 from app.services.duckdb_service import DuckDBService
 from app.services.ai_service import AIService
 from app.services.copilot.intents import classify_intent
 from app.services.copilot import tools
 from app.services.copilot.templates import generate_template_fallback
-from app.services.copilot import session
+from app.services.copilot.conversation_context import normalize_conversation_history
 from app.services.copilot.providers import GeminiProvider
 
 # Optional ReportLab PDF imports
@@ -39,33 +42,20 @@ class CopilotService:
         
         # Clean-code registry mapping intents to handlers
         self.intent_handlers = {
-            "daily_brief": self._handle_daily_brief,
-            "merchant_profile": self._handle_merchant_profile,
-            "merchant_risk": self._handle_merchant_risk,
-            "fleet_health": self._handle_fleet_health,
-            "gmv_trend": self._handle_gmv_trend,
-            "unknown": self._handle_unknown,
+            CopilotIntent.DAILY_BRIEF: self._handle_daily_brief,
+            CopilotIntent.MERCHANT_PROFILE: self._handle_merchant_profile,
+            CopilotIntent.MERCHANT_RISK: self._handle_merchant_risk,
+            CopilotIntent.FLEET_HEALTH: self._handle_fleet_health,
+            CopilotIntent.GMV_TREND: self._handle_gmv_trend,
+            CopilotIntent.UNKNOWN: self._handle_unknown,
         }
 
-    def classify_intent(self, prompt: str) -> str:
-        """Classify user prompt into a predefined domain intent."""
+    def classify_intent(self, prompt: str) -> CopilotIntent:
         return classify_intent(prompt)
-
-    def get_history(self, session_id: str) -> List[Dict[str, Any]]:
-        """Retrieve message history for the session."""
-        return session.get_history(session_id)
-
-    def terminate_session(self, session_id: str) -> None:
-        """Terminate session and delete its conversation history from storage."""
-        session.delete_session(session_id)
 
     def sanitize_sql(self, sql: str) -> None:
         """Enforce strict read-only execution by blocking write or destructive operations."""
-        clean = sql.upper().strip()
-        forbidden = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "TRUNCATE", "RENAME", "GRANT", "REVOKE"]
-        for token in forbidden:
-            if re.search(rf"\b{token}\b", clean):
-                raise ValueError(f"Security Policy Violation: Forbidden write SQL keyword detected: {token}")
+        validate_readonly_sql(sql)
 
     def enforce_limit(self, sql: str, max_limit: int = 100) -> str:
         """Append a LIMIT constraint to dynamic queries if not already present."""
@@ -240,7 +230,7 @@ class CopilotService:
                 "merchant_references": [],
                 "merchant_lookup": [],
                 "suggestions": ["Show daily brief summary", "Show fleet battery health"],
-                "intent": "unknown",
+                "intent": CopilotIntent.UNKNOWN.value,
                 "pagination": {
                     "limit": limit,
                     "offset": offset,
@@ -251,7 +241,7 @@ class CopilotService:
         except Exception as e:
             print(f"[copilot-service] Dynamic SQL pipeline failed: {e}. Falling back to daily brief.")
             brief = self._handle_daily_brief(prompt, org_id, limit=limit, offset=offset)
-            brief["intent"] = "daily_brief"
+            brief["intent"] = CopilotIntent.DAILY_BRIEF.value
             brief["sources"] = ["DuckDB: portfolio_overview"]
             brief["suggestions"] = ["Show daily brief summary", "Show fleet battery health"]
             return brief
@@ -260,34 +250,45 @@ class CopilotService:
     # Answer Generation and Synthesis Methods
     # =====================================================================
 
+    def _intent_value(self, intent: CopilotIntent | str) -> str:
+        return intent.value if isinstance(intent, CopilotIntent) else str(intent)
+
     def _generate_answer(
         self,
-        intent: str,
+        intent: CopilotIntent | str,
         prompt: str,
         target_model: str,
         context: Dict[str, Any],
         sql_query: str,
         data: List[Dict[str, Any]],
-        sid: str,
+        conversation_history: list[dict[str, str]],
     ) -> str:
         """Flattened answer generation using guard clauses for provider availability checks."""
         if not self.provider.is_available():
             return self._generate_fallback(intent, prompt, context, data, sql_query)
 
         try:
-            if intent == "unknown":
+            if self._intent_value(intent) == CopilotIntent.UNKNOWN.value:
                 return self._generate_dynamic_synthesis(prompt, sql_query, data, target_model)
             
-            return self._generate_standard_synthesis(prompt, context, target_model, sid)
+            return self._generate_standard_synthesis(
+                prompt, context, target_model, conversation_history
+            )
         except Exception as e:
             print(f"[copilot-service] Generation error: {e}. Falling back to templates.")
             return self._generate_fallback(intent, prompt, context, data, sql_query)
 
-    def _generate_fallback(self, intent: str, prompt: str, context: Dict[str, Any], data: List[Dict[str, Any]], sql_query: str) -> str:
-        """Fall back to markdown templates if LLM execution is unavailable."""
-        if intent == "unknown":
+    def _generate_fallback(
+        self,
+        intent: CopilotIntent | str,
+        prompt: str,
+        context: Dict[str, Any],
+        data: List[Dict[str, Any]],
+        sql_query: str,
+    ) -> str:
+        if self._intent_value(intent) == CopilotIntent.UNKNOWN.value:
             return f"Retrieved {len(data)} matching records dynamically from DuckDB."
-        return generate_template_fallback(intent, prompt, context)
+        return generate_template_fallback(self._intent_value(intent), prompt, context)
 
     def _generate_dynamic_synthesis(self, prompt: str, sql_query: str, data: List[Dict[str, Any]], target_model: str) -> str:
         """Ask LLM to explain raw query records from custom dynamic joins/filters."""
@@ -307,9 +308,16 @@ class CopilotService:
             model_name=target_model
         )
 
-    def _generate_standard_synthesis(self, prompt: str, context: Dict[str, Any], target_model: str, sid: str) -> str:
-        """Prompt LLM using standard templates with recent chat history."""
-        history = session.get_history(sid)[-6:]
+    def _generate_standard_synthesis(
+        self,
+        prompt: str,
+        context: Dict[str, Any],
+        target_model: str,
+        conversation_history: list[dict[str, str]],
+    ) -> str:
+        """Prompt LLM using standard templates with caller-supplied recent history."""
+        settings = get_settings()
+        history = conversation_history[-settings.llm_context_window :]
         system_instruction = f"""
         You are Chanakya, the highly intelligent operational copilot for Soundbox payment and device operations.
         Analyze the user's question using the retrieved database context below.
@@ -426,26 +434,24 @@ class CopilotService:
     def query(
         self,
         prompt: str,
-        session_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
         org_id: Optional[str] = None,
         model_name: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> Dict[str, Any]:
-        """Process a query: classify, execute handler dynamically, synthesize answer, and return response dict."""
+        """Stateless query — history from request only; nothing persisted after response."""
         start_time = time.time()
-        sid = session.get_or_create_session(session_id)
-        
-        # 1. Classify intent
+        normalized_history = normalize_conversation_history(conversation_history)
+
         intent = self.classify_intent(prompt)
-        
-        # 2. Get handler from registry and execute (Early returns and registry pattern)
         handler = self.intent_handlers.get(intent, self._handle_unknown)
         res = handler(prompt, org_id, limit=limit, offset=offset)
-        
+
         final_intent = res.get("intent", intent)
-        
-        # 3. Generate answer using flattened method
+        final_intent_value = self._intent_value(final_intent)
+
         target_model = model_name or "gemini-2.5-flash"
         answer = self._generate_answer(
             intent=final_intent,
@@ -454,18 +460,15 @@ class CopilotService:
             context=res["context"],
             sql_query=res["sql_query"],
             data=res["data"],
-            sid=sid
+            conversation_history=normalized_history,
         )
 
-        # 4. Update message history
-        session.append_history(sid, prompt, answer)
-        
         latency = time.time() - start_time
-        
+
         return {
-            "session_id": sid,
+            "conversation_id": conversation_id,
             "answer": answer,
-            "intent": final_intent,
+            "intent": final_intent_value,
             "sources": res["sources"],
             "suggestions": res["suggestions"],
             "latency": round(latency, 3),
@@ -473,5 +476,5 @@ class CopilotService:
             "data": res["data"],
             "merchant_references": res["merchant_references"],
             "merchant_lookup": res["merchant_lookup"],
-            "pagination": res.get("pagination")
+            "pagination": res.get("pagination"),
         }

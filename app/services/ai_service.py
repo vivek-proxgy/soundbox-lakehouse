@@ -70,6 +70,10 @@ The database has three tables:
    - `device_id` (VARCHAR) - Device ID linked to merchant.
    - `merchant_activity_status` (VARCHAR)
    - `merchant_activated_at` (TIMESTAMP)
+   - `head_office_id` (VARCHAR) - Taxonomy scope for head office.
+   - `zone_office_id` (VARCHAR) - Taxonomy scope for zone office.
+   - `regional_office_id` (VARCHAR) - Taxonomy scope for regional office.
+   - `branch_office_id` (VARCHAR) - Taxonomy scope for branch office.
 
 2. `transactions` - List of financial transactions.
    Columns:
@@ -123,12 +127,24 @@ Instructions:
 3. Do not include markdown code block formatting (like ```json) in your raw response. Just return the JSON object.
 """
 
-    def generate_sql(self, user_prompt: str) -> str:
+    def generate_sql(self, user_prompt: str, access_scope=None) -> str:
         """Translate a user prompt into a DuckDB SQL query using Gemini."""
         if not self.model_name:
             raise service_unavailable(ErrorKey.CONFIG, ErrorMessage.GEMINI_NOT_CONFIGURED.value)
 
-        system_prompt = self._get_schema_prompt()
+        scope_hint = ""
+        if access_scope is not None:
+            scope_hint = (
+                f"\nMandatory data scope: organization_id = '{access_scope.organization_id}'. "
+                "Every query MUST filter by this organization_id while querying"
+            )
+            if access_scope.hierarchy_filter:
+                scope_hint += (
+                    f" Also filter merchants.{access_scope.hierarchy_filter.column} = "
+                    f"'{access_scope.hierarchy_filter.taxonomy_id}' and scope transactions/telemetry to those merchants."
+                )
+
+        system_prompt = self._get_schema_prompt() + scope_hint
         model = genai.GenerativeModel(
             self.model_name,
             system_instruction=system_prompt
@@ -151,10 +167,13 @@ Instructions:
         except Exception as e:
             raise ValueError(f"AI returned invalid SQL JSON response: {response.text}. Error: {e}")
 
-    def query_with_ai(self, user_prompt: str) -> dict[str, Any]:
+    def query_with_ai(self, user_prompt: str, access_scope=None) -> dict[str, Any]:
         """Convert natural language to SQL, run the query, and return results + synthesis."""
-        sql = self.generate_sql(user_prompt)
+        from app.services.copilot.access_scope import apply_scope_to_dynamic_sql
+
+        sql = self.generate_sql(user_prompt, access_scope=access_scope)
         safe_sql = sanitize_sql(sql)
+        safe_sql = apply_scope_to_dynamic_sql(safe_sql, access_scope)
 
         df = self.duckdb_service.query_to_df(safe_sql)
         records = df.to_dict(orient="records")

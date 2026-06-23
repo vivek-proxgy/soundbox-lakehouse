@@ -23,12 +23,12 @@ def test_spark_config_uses_env(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_jdbc_url_from_database_env(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("DATABASE_HOST", "10.0.0.5")
-    monkeypatch.setenv("DATABASE_PORT", "5432")
-    monkeypatch.setenv("DATABASE_NAME", "sbiaudiopod")
+    monkeypatch.setenv("SOUNDBOX_DATABASE_HOST", "mock-host")
+    monkeypatch.setenv("SOUNDBOX_DATABASE_PORT", "5432")
+    monkeypatch.setenv("SOUNDBOX_DATABASE_NAME", "mock-db")
 
     cfg = Settings()
-    assert cfg.jdbc_url == "jdbc:postgresql://10.0.0.5:5432/sbiaudiopod"
+    assert cfg.jdbc_url == "jdbc:postgresql://mock-host:5432/mock-db"
 
 
 def test_ingest_engine_validation(monkeypatch: pytest.MonkeyPatch):

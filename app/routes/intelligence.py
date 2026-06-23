@@ -17,6 +17,7 @@ from app.routes import copilot as copilot_routes
 from app.security.auth import AuthContext
 from app.security.dependencies import require_auth
 from app.services.ai_service import AIService
+from app.services.copilot.access_scope import coerce_access_scope, scope_from_org_id
 from app.services.duckdb_service import DuckDBService
 
 router = APIRouter(prefix="/api/v1/intelligence", tags=["intelligence"])
@@ -34,9 +35,13 @@ def get_services() -> tuple[DuckDBService, AIService]:
     return _duckdb_svc, _ai_svc
 
 
+from app.routes.schemas.copilot import AccessScope
+
+
 class IntelligenceAskRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=2000)
     org_id: str | None = Field(None, max_length=64)
+    access_scope: AccessScope | None = None
 
 
 class IntelligenceSqlRequest(BaseModel):
@@ -56,7 +61,7 @@ class IntelligenceSqlResponse(BaseModel):
     count: int
 
 
-@router.post("/ask", response_model=IntelligenceAskResponse)
+@router.post("/ask")
 def ask_intelligence(
     req: IntelligenceAskRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
@@ -68,7 +73,8 @@ def ask_intelligence(
         if not ai_svc.is_configured():
             raise service_unavailable(ErrorKey.CONFIG, ErrorMessage.GEMINI_NOT_CONFIGURED.value)
 
-        result = ai_svc.query_with_ai(req.prompt)
+        scope = coerce_access_scope(req.access_scope) or scope_from_org_id(req.org_id)
+        result = ai_svc.query_with_ai(req.prompt, access_scope=scope)
         records = result.get("data", [])
         return IntelligenceAskResponse(
             answer=result.get("answer", ""),
@@ -80,7 +86,7 @@ def ask_intelligence(
     return run_safe(_execute, log_context="intelligence.ask")
 
 
-@router.post("/sql", response_model=IntelligenceSqlResponse)
+@router.post("/sql")
 def query_sql(
     req: IntelligenceSqlRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],

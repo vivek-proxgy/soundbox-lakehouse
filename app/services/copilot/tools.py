@@ -9,7 +9,13 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, NamedTuple, Optional
 import pandas as pd
 
-from app.core.sql_security import sanitize_org_id
+from app.services.copilot.access_scope import (
+    AccessScope,
+    append_merchant_scope,
+    append_telemetry_scope,
+    append_transaction_scope,
+    scope_from_org_id,
+)
 from app.services.duckdb_service import DuckDBService
 from app.services.copilot.forecaster import forecast_next_days
 
@@ -74,26 +80,25 @@ def cached_query_to_df(duckdb_service: DuckDBService, sql: str) -> pd.DataFrame:
 # =====================================================================
 
 def apply_org_filter(where_clause: str, org_id: Optional[str]) -> str:
-    """Safely append organization ID filter to SQL query conditions."""
-    if not org_id or org_id.lower() in ("all", "null", "undefined", ""):
-        return where_clause
-    prefix = "AND" if where_clause.strip() else "WHERE"
-    clean_org = sanitize_org_id(org_id)
-    if not clean_org:
-        return where_clause
-    return f"{where_clause} {prefix} organization_id = '{clean_org}'"
+    """Backward-compatible org filter — prefer access_scope in new code."""
+    return append_merchant_scope(where_clause, scope_from_org_id(org_id))
 
 
-def get_daily_brief_context(duckdb_service: DuckDBService, org_id: Optional[str] = None) -> Dict[str, Any]:
+def get_daily_brief_context(
+    duckdb_service: DuckDBService,
+    access_scope: AccessScope | None = None,
+    org_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Fetch high-level portfolio summary metrics from database views concurrently."""
+    scope = access_scope or scope_from_org_id(org_id)
     try:
-        m_where = apply_org_filter("", org_id)
+        m_where = append_merchant_scope("", scope)
         m_sql = f"SELECT count(*) as total_merchants, count(CASE WHEN merchant_activity_status = 'active' THEN 1 END) as active_count FROM merchants {m_where}"
-        
-        t_where = apply_org_filter("", org_id)
+
+        t_where = append_transaction_scope("", scope)
         t_sql = f"SELECT count(*) as total_tx, COALESCE(sum(amount), 0.0) as total_gmv, COALESCE(avg(latency), 0.0) as avg_latency FROM transactions {t_where}"
-        
-        tele_where = apply_org_filter("", org_id)
+
+        tele_where = append_telemetry_scope("", scope)
         tele_sql = f"SELECT COALESCE(avg(signal_strength), 0.0) as avg_signal, count(CASE WHEN battery_voltage < 3500 THEN 1 END) as low_battery_count FROM device_telemetry {tele_where}"
 
         # Execute the queries in parallel to minimize latency
@@ -126,18 +131,20 @@ def get_daily_brief_context(duckdb_service: DuckDBService, org_id: Optional[str]
 def get_merchant_profile_context(
     duckdb_service: DuckDBService,
     search_term: str,
+    access_scope: AccessScope | None = None,
     org_id: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
 ) -> Dict[str, Any]:
     """Lookup specific merchant profiles by matching ID or name with pagination."""
+    scope = access_scope or scope_from_org_id(org_id)
     try:
         clean_term = re.sub(r"[^a-zA-Z0-9\s\-_]", "", search_term).strip()
         if not clean_term:
             return {"search_results": [], "sql_query": "", "total_count": 0}
-        
+
         where = f"WHERE id = '{clean_term}' OR name ILIKE '%{clean_term}%'"
-        where = apply_org_filter(where, org_id)
+        where = append_merchant_scope(where, scope)
         
         # Run parallel or sequential count
         count_sql = f"SELECT count(*) as total_count FROM merchants {where}"
@@ -161,10 +168,16 @@ def get_merchant_profile_context(
 def get_merchant_risk_context(
     duckdb_service: DuckDBService,
     search_term: str,
+    access_scope: AccessScope | None = None,
     org_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Gather transaction profile and newest telemetry metrics for a given merchant concurrently."""
-    profile_res = get_merchant_profile_context(duckdb_service, search_term, org_id)
+    profile_res = get_merchant_profile_context(
+        duckdb_service,
+        search_term,
+        access_scope=access_scope,
+        org_id=org_id,
+    )
     profiles = profile_res.get("search_results", [])
     if not profiles:
         return {"sql_query": profile_res.get("sql_query", "")}
@@ -197,10 +210,15 @@ def get_merchant_risk_context(
         return {"profile": profile, "sql_query": profile_res.get("sql_query", "")}
 
 
-def get_fleet_health_context(duckdb_service: DuckDBService, org_id: Optional[str] = None) -> Dict[str, Any]:
+def get_fleet_health_context(
+    duckdb_service: DuckDBService,
+    access_scope: AccessScope | None = None,
+    org_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Retrieve operational telemetry summaries for warning bands."""
+    scope = access_scope or scope_from_org_id(org_id)
     try:
-        where = apply_org_filter("", org_id)
+        where = append_telemetry_scope("", scope)
         sql = f"""
             SELECT 
                 count(*) as total_devices,
@@ -222,14 +240,16 @@ def get_fleet_health_context(duckdb_service: DuckDBService, org_id: Optional[str
 
 def get_gmv_trend_context(
     duckdb_service: DuckDBService,
+    access_scope: AccessScope | None = None,
     org_id: Optional[str] = None,
     days: int = 30,
     limit: int = 100,
     offset: int = 0,
 ) -> Dict[str, Any]:
     """Compute trend projections and historical daily sums with pagination."""
+    scope = access_scope or scope_from_org_id(org_id)
     try:
-        where = apply_org_filter("", org_id)
+        where = append_transaction_scope("", scope)
         date_col = "created_at::date"
         prefix = "AND" if "WHERE" in where else "WHERE"
         

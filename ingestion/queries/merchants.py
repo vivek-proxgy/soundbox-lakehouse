@@ -31,8 +31,13 @@ SELECT
     m.package_update_at,
     m.device_id,
     m.merchant_activity_status,
-    m.merchant_activated_at
+    m.merchant_activated_at,
+    mh.head_office_id,
+    mh.zone_office_id,
+    mh.regional_office_id,
+    mh.branch_office_id
 FROM merchants m
+LEFT JOIN merchant_hierarchies mh ON mh.merchant_id = m.id
 WHERE m.deleted_at IS NULL
   AND m.role::text = 'merchant'
 """,
@@ -47,5 +52,9 @@ WHERE m.deleted_at IS NULL
         "vendor_name": "string",
         "device_id": "string",
         "merchant_activity_status": "string",
+        "head_office_id": "string",
+        "zone_office_id": "string",
+        "regional_office_id": "string",
+        "branch_office_id": "string",
     },
 )

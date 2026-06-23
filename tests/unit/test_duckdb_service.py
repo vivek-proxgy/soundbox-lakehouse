@@ -33,13 +33,13 @@ def test_duckdb_deduplicates_by_updated_at(tmp_path: Path):
 
     # 3. Initialize Settings with local root and upload_to_gcs=False
     settings = Settings(
-        DATABASE_TYPE="postgres",
-        DATABASE_HOST="localhost",
-        DATABASE_PORT=5432,
-        DATABASE_USERNAME="postgres",
-        DATABASE_PASSWORD="password",
-        DATABASE_NAME="test",
-        DATABASE_SSL_ENABLED=False,
+        SOUNDBOX_DATABASE_TYPE="postgres",
+        SOUNDBOX_DATABASE_HOST="localhost",
+        SOUNDBOX_DATABASE_PORT=5432,
+        SOUNDBOX_DATABASE_USERNAME="postgres",
+        SOUNDBOX_DATABASE_PASSWORD="password",
+        SOUNDBOX_DATABASE_NAME="test",
+        SOUNDBOX_DATABASE_SSL_ENABLED=False,
         ENCRYPTION_KEY="0" * 64,
         IV="0" * 32,
         ENCRYPTION_METHOD="aes-256-cbc",

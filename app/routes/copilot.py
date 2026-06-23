@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from app.core.enums.error_key import ErrorKey
 from app.core.exception_guard import run_safe
 from app.routes.schemas.copilot import (
+    AccessScope,
     CopilotQueryRequest,
     CopilotQueryResponse,
     ExportExcelRequest,
@@ -19,6 +20,7 @@ from app.routes.schemas.copilot import (
 from app.security.auth import AuthContext
 from app.security.dependencies import require_auth
 from app.services.copilot import CopilotService
+from app.services.copilot.access_scope import coerce_access_scope, scope_from_org_id
 
 router = APIRouter(tags=["copilot"])
 
@@ -32,7 +34,7 @@ def get_copilot_service() -> CopilotService:
     return _copilot_service
 
 
-@router.post("/query", response_model=CopilotQueryResponse)
+@router.post("/query")
 def query_copilot(
     req: CopilotQueryRequest,
     auth: Annotated[AuthContext, Depends(require_auth)],
@@ -45,11 +47,13 @@ def query_copilot(
     def _execute() -> CopilotQueryResponse:
         service = get_copilot_service()
         history_payload = [msg.model_dump() for msg in req.conversation_history]
+        scope = coerce_access_scope(req.access_scope) or scope_from_org_id(req.org_id)
         result = service.query(
             prompt=req.prompt,
             conversation_id=req.conversation_id,
             conversation_history=history_payload,
             org_id=req.org_id,
+            access_scope=scope,
             model_name=req.model_name,
             limit=req.limit,
             offset=req.offset,

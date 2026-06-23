@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import pytest
 
-from app.config.settings import get_settings
+from app.config.settings import Settings, get_settings
 from app.config.enums.env_var import SettingsEnv
 from app.core.enums.run_mode import RunMode
 
@@ -64,15 +64,16 @@ def sample_export_frames(
 
 @pytest.fixture(autouse=True)
 def mock_all_settings_env(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("DATABASE_TYPE", "postgres")
-    monkeypatch.setenv("DATABASE_HOST", "mock-host")
-    monkeypatch.setenv("DATABASE_PORT", "5432")
-    monkeypatch.setenv("DATABASE_USERNAME", "mock-user")
-    monkeypatch.setenv("DATABASE_PASSWORD", "mock-pass")
-    monkeypatch.setenv("DATABASE_NAME", "mock-db")
-    monkeypatch.setenv("DATABASE_SSL_ENABLED", "false")
-    monkeypatch.setenv("ENCRYPTION_KEY", "0000000000000000000000000000000000000000000000000000000000000000")
-    monkeypatch.setenv("IV", "00000000000000000000000000000000")
+    monkeypatch.setenv("SOUNDBOX_DATABASE_TYPE", "postgres")
+    monkeypatch.setenv("SOUNDBOX_DATABASE_HOST", "mock-host")
+    monkeypatch.setenv("SOUNDBOX_DATABASE_PORT", "5432")
+    monkeypatch.setenv("SOUNDBOX_DATABASE_USERNAME", "mock-user")
+    monkeypatch.setenv("SOUNDBOX_DATABASE_PASSWORD", "mock-pass")
+    monkeypatch.setenv("SOUNDBOX_DATABASE_NAME", "mock-db")
+    monkeypatch.setenv("SOUNDBOX_DATABASE_SSL_ENABLED", "false")
+    import secrets
+    monkeypatch.setenv("ENCRYPTION_KEY", secrets.token_hex(32))
+    monkeypatch.setenv("IV", secrets.token_hex(16))
     monkeypatch.setenv("ENCRYPTION_METHOD", "aes-256-cbc")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "mock-project")
     monkeypatch.setenv("GCP_REGION", "asia-south1")
@@ -92,14 +93,16 @@ def mock_all_settings_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("SPARK_ICEBERG_CATALOG", "lakehouse")
     monkeypatch.setenv("SPARK_ICEBERG_VERSION", "1.5.2")
     monkeypatch.setenv("SPARK_VERSION", "3.5")
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
     monkeypatch.setenv("SPARK_JDBC_NUM_PARTITIONS", "16")
     monkeypatch.setenv("SPARK_JDBC_FETCH_SIZE", "10000")
     monkeypatch.setenv("SPARK_DECRYPT_PII", "false")
     monkeypatch.setenv(SettingsEnv.RUN_MODE, RunMode.INGEST)
     monkeypatch.setenv("AUTH_ENABLED", "false")
-    monkeypatch.setenv("AUTH_JWT_SECRET", "test-jwt-secret-for-ci")
-    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
-    monkeypatch.setenv("LAKEHOUSE_API_KEY", "a" * 32)
+    monkeypatch.setenv("AUTH_API_KEY_ONLY", "false")
+    monkeypatch.setenv("AUTH_JWT_SECRET", secrets.token_hex(16))
+    monkeypatch.setenv("GEMINI_API_KEY", f"mock-gemini-key-{secrets.token_hex(8)}")
+    monkeypatch.setenv("LAKEHOUSE_API_KEY", secrets.token_hex(16))
     monkeypatch.setenv("LOG_LEVEL", "WARNING")
     monkeypatch.setenv("CONVERSATION_MAX_TURNS", "20")
     monkeypatch.setenv("CONVERSATION_MAX_MESSAGE_LENGTH", "4000")

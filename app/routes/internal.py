@@ -23,7 +23,7 @@ class IngestResponse(BaseModel):
     summary: dict[str, Any]
 
 
-@router.post("/ingest", response_model=IngestResponse)
+@router.post("/ingest")
 def trigger_ingestion(
     auth: Annotated[AuthContext, Depends(require_privileged_role)],
 ) -> IngestResponse:

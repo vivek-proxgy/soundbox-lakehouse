@@ -19,6 +19,7 @@ from app.services.copilot import tools
 from app.services.copilot.templates import generate_template_fallback
 from app.services.copilot.conversation_context import normalize_conversation_history
 from app.services.copilot.providers import GeminiProvider
+from app.services.copilot.access_scope import AccessScope, apply_scope_to_dynamic_sql, scope_from_org_id
 
 # Optional ReportLab PDF imports
 try:
@@ -73,9 +74,9 @@ class CopilotService:
     # Intent Handlers Registry Methods
     # =====================================================================
 
-    def _handle_daily_brief(self, prompt: str, org_id: str | None, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
+    def _handle_daily_brief(self, prompt: str, access_scope: AccessScope | None, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         """Fetch daily portfolio metrics summary."""
-        context = tools.get_daily_brief_context(self.duckdb_service, org_id)
+        context = tools.get_daily_brief_context(self.duckdb_service, access_scope=access_scope)
         return {
             "context": context,
             "sources": ["DuckDB: merchants", "DuckDB: transactions", "DuckDB: device_telemetry"],
@@ -96,9 +97,15 @@ class CopilotService:
             }
         }
 
-    def _handle_merchant_profile(self, prompt: str, org_id: str | None, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
+    def _handle_merchant_profile(self, prompt: str, access_scope: AccessScope | None, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         """Lookup merchant profiles matching name or ID with pagination."""
-        profile_res = tools.get_merchant_profile_context(self.duckdb_service, prompt, org_id, limit=limit, offset=offset)
+        profile_res = tools.get_merchant_profile_context(
+            self.duckdb_service,
+            prompt,
+            access_scope=access_scope,
+            limit=limit,
+            offset=offset,
+        )
         lookup_res = profile_res.get("search_results", [])
         total_count = profile_res.get("total_count", len(lookup_res))
         
@@ -124,9 +131,9 @@ class CopilotService:
             }
         }
 
-    def _handle_merchant_risk(self, prompt: str, org_id: str | None, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
+    def _handle_merchant_risk(self, prompt: str, access_scope: AccessScope | None, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         """Evaluate operational risk and transaction health for a merchant."""
-        risk_res = tools.get_merchant_risk_context(self.duckdb_service, prompt, org_id)
+        risk_res = tools.get_merchant_risk_context(self.duckdb_service, prompt, access_scope=access_scope)
         
         merchant_refs = []
         if "profile" in risk_res:
@@ -155,9 +162,9 @@ class CopilotService:
             }
         }
 
-    def _handle_fleet_health(self, prompt: str, org_id: str | None, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
+    def _handle_fleet_health(self, prompt: str, access_scope: AccessScope | None, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         """Review hardware issues and telemetry warning states."""
-        context = tools.get_fleet_health_context(self.duckdb_service, org_id)
+        context = tools.get_fleet_health_context(self.duckdb_service, access_scope=access_scope)
         return {
             "context": context,
             "sources": ["DuckDB: device_telemetry"],
@@ -177,9 +184,14 @@ class CopilotService:
             }
         }
 
-    def _handle_gmv_trend(self, prompt: str, org_id: str | None, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
+    def _handle_gmv_trend(self, prompt: str, access_scope: AccessScope | None, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         """Perform regression predictions and return historical GMV curves with pagination."""
-        context = tools.get_gmv_trend_context(self.duckdb_service, org_id, limit=limit, offset=offset)
+        context = tools.get_gmv_trend_context(
+            self.duckdb_service,
+            access_scope=access_scope,
+            limit=limit,
+            offset=offset,
+        )
         historical = context.get("historical_daily_gmv", [])
         total_count = context.get("total_count", len(historical))
         
@@ -202,12 +214,13 @@ class CopilotService:
             }
         }
 
-    def _handle_unknown(self, prompt: str, org_id: str | None, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
+    def _handle_unknown(self, prompt: str, access_scope: AccessScope | None, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         """Dynamically generate, sanitize, and run SQL queries for custom analytical requests with pagination."""
         try:
             sql = self.ai_service.generate_sql(prompt)
             self.sanitize_sql(sql)
-            
+            sql = apply_scope_to_dynamic_sql(sql, access_scope)
+
             # Fetch total count first
             count_sql = self.get_dynamic_count_sql(sql)
             count_df = self.duckdb_service.query_to_df(count_sql)
@@ -240,7 +253,7 @@ class CopilotService:
             }
         except Exception as e:
             print(f"[copilot-service] Dynamic SQL pipeline failed: {e}. Falling back to daily brief.")
-            brief = self._handle_daily_brief(prompt, org_id, limit=limit, offset=offset)
+            brief = self._handle_daily_brief(prompt, access_scope, limit=limit, offset=offset)
             brief["intent"] = CopilotIntent.DAILY_BRIEF.value
             brief["sources"] = ["DuckDB: portfolio_overview"]
             brief["suggestions"] = ["Show daily brief summary", "Show fleet battery health"]
@@ -437,6 +450,7 @@ class CopilotService:
         conversation_id: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, Any]]] = None,
         org_id: Optional[str] = None,
+        access_scope: Optional[AccessScope] = None,
         model_name: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
@@ -444,10 +458,11 @@ class CopilotService:
         """Stateless query — history from request only; nothing persisted after response."""
         start_time = time.time()
         normalized_history = normalize_conversation_history(conversation_history)
+        scope = access_scope or scope_from_org_id(org_id)
 
         intent = self.classify_intent(prompt)
         handler = self.intent_handlers.get(intent, self._handle_unknown)
-        res = handler(prompt, org_id, limit=limit, offset=offset)
+        res = handler(prompt, scope, limit=limit, offset=offset)
 
         final_intent = res.get("intent", intent)
         final_intent_value = self._intent_value(final_intent)

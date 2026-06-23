@@ -16,14 +16,14 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    # --- Soundbox backend Postgres (same names as on-prem-soundbox-backend/.env) ---
-    database_type: str = Field(validation_alias="DATABASE_TYPE")
-    database_host: str = Field(validation_alias="DATABASE_HOST")
-    database_port: int = Field(validation_alias="DATABASE_PORT")
-    database_username: str = Field(validation_alias="DATABASE_USERNAME")
-    database_password: str = Field(validation_alias="DATABASE_PASSWORD")
-    database_name: str = Field(validation_alias="DATABASE_NAME")
-    database_ssl_enabled: bool = Field(validation_alias="DATABASE_SSL_ENABLED")
+    # --- Soundbox backend Postgres ---
+    database_type: str = Field(validation_alias="SOUNDBOX_DATABASE_TYPE")
+    database_host: str = Field(validation_alias="SOUNDBOX_DATABASE_HOST")
+    database_port: int = Field(validation_alias="SOUNDBOX_DATABASE_PORT")
+    database_username: str = Field(validation_alias="SOUNDBOX_DATABASE_USERNAME")
+    database_password: str = Field(validation_alias="SOUNDBOX_DATABASE_PASSWORD")
+    database_name: str = Field(validation_alias="SOUNDBOX_DATABASE_NAME")
+    database_ssl_enabled: bool = Field(validation_alias="SOUNDBOX_DATABASE_SSL_ENABLED")
 
     # --- Merchant field decryption (soundbox-backend typeorm-encrypted) ---
     encryption_key: str = Field(validation_alias="ENCRYPTION_KEY")

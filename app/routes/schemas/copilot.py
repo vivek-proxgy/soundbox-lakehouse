@@ -7,6 +7,19 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class HierarchyScopeFilter(BaseModel):
+    column: Literal["head_office_id", "zone_office_id", "regional_office_id", "branch_office_id"]
+    taxonomy_id: str = Field(..., max_length=64)
+
+
+class AccessScope(BaseModel):
+    organization_id: str = Field(..., max_length=64)
+    roles: List[str] = Field(default_factory=list)
+    can_view_pii: bool = False
+    hierarchy_enabled: bool = False
+    hierarchy_filter: Optional[HierarchyScopeFilter] = None
+
+
 class ConversationMessage(BaseModel):
     """Single turn supplied by soundbox-backend; never persisted by intelligence service."""
 
@@ -27,6 +40,10 @@ class CopilotQueryRequest(BaseModel):
         description="Prior turns sent by backend each request — stateless, not stored here.",
     )
     org_id: Optional[str] = Field(None, max_length=64)
+    access_scope: Optional[AccessScope] = Field(
+        None,
+        description="Authoritative caller scope from soundbox-backend (org, role, hierarchy).",
+    )
     model_name: Optional[str] = Field(None, max_length=64)
     limit: Optional[int] = Field(100, ge=1, le=1000)
     offset: Optional[int] = Field(0, ge=0)
